@@ -1,5 +1,6 @@
 {
     "name": "@nulla-sutra/bun-websocket-server-transport",
+    "version": "0.1.0",
     "module": "src/index.ts",
     "type": "module",
     "exports": {
@@ -10,6 +11,10 @@
     "repository": {
         "url": "https://github.com/nulla-sutra/bun-websocket-server-transport",
         "type": "github"
+    },
+    "author": {
+        "email": "tarnishablec@outlook.com",
+        "name": "tarnishablec"
     },
     "license": "MPL-2.0",
     "scripts": {
