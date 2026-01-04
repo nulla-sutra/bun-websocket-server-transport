@@ -5,7 +5,7 @@
     "": {
       "name": "wooper-mcp-transport",
       "dependencies": {
-        "@thaterror/core": "^1",
+        "@thaterror/core": "^1.0.1",
         "neverthrow": "^8.2.0",
       },
       "devDependencies": {
