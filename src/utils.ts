@@ -1,7 +1,27 @@
-import { fromThrowable } from "neverthrow";
-import { SerializationError } from "./error";
+import {
+    isJSONRPCErrorResponse,
+    isJSONRPCNotification,
+    isJSONRPCRequest,
+    isJSONRPCResultResponse,
+    type JSONRPCMessage,
+} from "@modelcontextprotocol/sdk/types.js";
 
-const safeSerialize = fromThrowable(
-  JSON.stringify,
-  (cause) => SerializationError.ENCODE_FAILED().with({ cause })
-);
+export const briefOf = (msg: JSONRPCMessage) => {
+    if (isJSONRPCRequest(msg)) {
+        return `Request [${msg.id}]:(${msg.method})`;
+    }
+
+    if (isJSONRPCResultResponse(msg)) {
+        return `Response Result [${msg.id}]`;
+    }
+
+    if (isJSONRPCErrorResponse(msg)) {
+        return `Response Error [${msg.id}] ${msg.error.message}`;
+    }
+
+    if (isJSONRPCNotification(msg)) {
+        return `Notification (${msg.method})`;
+    }
+
+    return `Unknown JSON-RPC message`;
+};

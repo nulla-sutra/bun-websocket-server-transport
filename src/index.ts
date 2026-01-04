@@ -1,55 +1,88 @@
-import type { Transport, TransportSendOptions } from "@modelcontextprotocol/sdk/shared/transport.d.ts";
-import type { JSONRPCMessage, MessageExtraInfo } from "@modelcontextprotocol/sdk/types.js";
+import type {
+    Transport,
+    TransportSendOptions
+} from "@modelcontextprotocol/sdk/shared/transport.d.ts";
+import type {
+    JSONRPCMessage,
+    MessageExtraInfo
+} from "@modelcontextprotocol/sdk/types.js";
+import type { ThatError } from "@thaterror/core";
 import type { ServerWebSocket } from "bun";
-import { err, ok, Result } from 'neverthrow';
-import { WebsocketError } from "./error";
+import { err, fromThrowable, ok, type Result } from "neverthrow";
+import { SerializationError, WebsocketError } from "./error";
 
-export class ServerWebSocketTransport implements Transport {
-	protected ws?: ServerWebSocket<{ transport: ServerWebSocketTransport }>;
+export class WebSocketServerTransport implements Transport {
+    protected ws?: ServerWebSocket<{ transport: WebSocketServerTransport }>;
 
-	mount(ws: Exclude<ServerWebSocketTransport['ws'], undefined>) {
-		if (this.ws && this.ws !== ws) {
-			return err(WebsocketError.ILLEGAL_REBIND(this.ws, ws))
-		}
+    mount(
+        ws: Exclude<WebSocketServerTransport["ws"], undefined>
+    ): Result<void, ThatError<typeof WebsocketError, "ILLEGAL_REBIND">> {
+        if (this.ws && this.ws !== ws) {
+            return err(WebsocketError.ILLEGAL_REBIND(this.ws, ws));
+        }
 
-		this.ws = ws;
-	}
+        this.ws = ws;
+        return ok();
+    }
 
-	protected ensure = () => {
-		const { ws } = this;
+    protected ensure = (): Result<
+        Exclude<WebSocketServerTransport["ws"], undefined>,
+        ThatError<typeof WebsocketError, "SOCKET_DEAD" | "CONNECT_MISSING">
+    > => {
+        if (!this.ws) {
+            return err(WebsocketError.CONNECT_MISSING());
+        }
 
-		if (!ws) {
-			return err(WebsocketError.CONNECT_MISSING());
-		}
+        if (this.ws.readyState !== 1) {
+            return err(WebsocketError.SOCKET_DEAD(this.ws));
+        }
 
-		if (ws.readyState !== 1) {
-			return err(WebsocketError.SOCKET_DEAD(ws));
-		}
+        return ok(this.ws);
+    };
 
-		return ok(ws);
-	}
+    // #region Transport interface
+    async start(): Promise<void> {
+        if (!this.ws) {
+            throw WebsocketError.CONNECT_MISSING();
+        }
+    }
 
-	// #region Transport interface
-	async start(): Promise<void> {
-		if (!this.ws) {
-			throw WebsocketError.CONNECT_MISSING();
-		}
-	}
+    async send(
+        message: JSONRPCMessage,
+        options?: TransportSendOptions
+    ): Promise<void> {
+        this.ensure()
+            .andThen((ws) =>
+                fromThrowable(
+                    () => JSON.stringify(message),
+                    (cause) =>
+                        SerializationError.ENCODE_FAILED(message).with({
+                            cause
+                        })
+                )().map((payload) => ({ ws, payload }))
+            )
+            .andThen(({ ws, payload }) =>
+                fromThrowable(
+                    () => ws.send(payload),
+                    (cause) =>
+                        WebsocketError.TRANSMIT_FAILED(payload).with({ cause })
+                )()
+            );
+    }
 
-	async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
-	}
+    async close(): Promise<void> {
+        this.ws?.close();
+        this.ws = undefined;
+        this.onclose?.();
+    }
 
-	async close(): Promise<void> {
-		this.ws?.close();
-		this.ws = undefined;
-		this.onclose?.();
-	}
-
-	onclose?: (() => void) | undefined;
-	onerror?: ((error: Error) => void) | undefined;
-	onmessage?: (<T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void) | undefined;
-	sessionId?: string | undefined;
-	setProtocolVersion?: ((version: string) => void) | undefined;
-	// #endregion
+    onclose?: (() => void) | undefined;
+    onerror?: ((error: Error) => void) | undefined;
+    onmessage?: <T extends JSONRPCMessage>(
+        message: T,
+        extra?: MessageExtraInfo
+    ) => void;
+    sessionId?: string | undefined;
+    setProtocolVersion?: ((version: string) => void) | undefined;
+    // #endregion
 }
-
