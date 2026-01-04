@@ -12,6 +12,11 @@
         "url": "https://github.com/nulla-sutra/bun-websocket-server-transport",
         "type": "github"
     },
+    "files": [
+        "src",
+        "package.json",
+        "README.md"
+    ],
     "author": {
         "email": "tarnishablec@outlook.com",
         "name": "tarnishablec"
