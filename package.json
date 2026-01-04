@@ -1,5 +1,5 @@
 {
-    "name": "wooper-mcp-transport",
+    "name": "@nulla-sutra/bun-websocket-server-transport",
     "module": "src/index.ts",
     "type": "module",
     "exports": {

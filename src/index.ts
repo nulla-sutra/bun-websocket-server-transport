@@ -9,10 +9,12 @@ import type {
 import type { ThatError } from "@thaterror/core";
 import type { ServerWebSocket } from "bun";
 import { err, fromThrowable, ok, type Result } from "neverthrow";
-import { SerializationError, WebsocketError } from "./error";
+import { SerializationError, TransportError, WebsocketError } from "./error";
+import { isJSONRPCMessage } from "./utils";
 
 export class WebSocketServerTransport implements Transport {
     protected ws?: ServerWebSocket<{ transport: WebSocketServerTransport }>;
+    protocolVersion?: string;
 
     mount(
         ws: Exclude<WebSocketServerTransport["ws"], undefined>
@@ -22,6 +24,7 @@ export class WebSocketServerTransport implements Transport {
         }
 
         this.ws = ws;
+        ws.data.transport = this;
         return ok();
     }
 
@@ -40,25 +43,86 @@ export class WebSocketServerTransport implements Transport {
         return ok(this.ws);
     };
 
+    private reportError(error: Error): void {
+        this.onerror?.(error);
+    }
+
+    /**
+     * Feed an incoming Bun websocket message into the MCP transport.
+     * Call this from `websocket.message(ws, message)`.
+     */
+    handleMessage(
+        message: string | Uint8Array,
+        extra?: MessageExtraInfo
+    ): void {
+        const text =
+            typeof message === "string"
+                ? message
+                : new TextDecoder().decode(message);
+
+        fromThrowable(
+            () => JSON.parse(text) as unknown,
+            (cause) => SerializationError.MALFORMED_JSON().with({ cause })
+        )()
+            .andThen((value) =>
+                isJSONRPCMessage(value)
+                    ? ok(value)
+                    : err(
+                          SerializationError.MCP_SPEC_VIOLATION().with({
+                              cause: value
+                          })
+                      )
+            )
+            .match(
+                (msg) => {
+                    this.onmessage?.(msg, extra);
+                },
+                (error) => {
+                    this.reportError(error);
+                }
+            );
+    }
+
+    /** Call this from Bun's `websocket.close` handler. */
+    handleClose(): void {
+        const ws = this.ws;
+        this.ws = undefined;
+
+        if (!ws) {
+            return;
+        }
+
+        this.onclose?.();
+    }
+
+    /** Call this from Bun's `websocket.error` handler (if you use it). */
+    handleError(cause: unknown): void {
+        this.reportError(
+            TransportError.UNKNOWN("websocket error").with({ cause })
+        );
+    }
+
     // #region Transport interface
     async start(): Promise<void> {
-        if (!this.ws) {
-            throw WebsocketError.CONNECT_MISSING();
+        const ensured = this.ensure();
+        if (ensured.isErr()) {
+            throw ensured.error;
         }
+
+        this.sessionId ??= globalThis.crypto.randomUUID();
     }
 
     async send(
         message: JSONRPCMessage,
-        options?: TransportSendOptions
+        _options?: TransportSendOptions
     ): Promise<void> {
-        this.ensure()
+        const result = this.ensure()
             .andThen((ws) =>
                 fromThrowable(
-                    () => JSON.stringify(message),
+                    () => JSON.stringify(message, null, 2),
                     (cause) =>
-                        SerializationError.ENCODE_FAILED(message).with({
-                            cause
-                        })
+                        // biome-ignore format: keep `.with({ cause })` single-line
+                        SerializationError.ENCODE_FAILED(message).with({ cause })
                 )().map((payload) => ({ ws, payload }))
             )
             .andThen(({ ws, payload }) =>
@@ -68,11 +132,39 @@ export class WebSocketServerTransport implements Transport {
                         WebsocketError.TRANSMIT_FAILED(payload).with({ cause })
                 )()
             );
+
+        if (result.isErr()) {
+            this.reportError(result.error);
+            throw result.error;
+        }
     }
 
     async close(): Promise<void> {
-        this.ws?.close();
+        const ensured = this.ensure();
         this.ws = undefined;
+
+        ensured
+            .andThen((ws) =>
+                fromThrowable(
+                    () => ws.close(),
+                    (cause) =>
+                        TransportError.UNKNOWN("websocket close failed").with({
+                            cause
+                        })
+                )()
+            )
+            .mapErr((error) => {
+                // Calling close() when already closed (or never mounted) is not exceptional.
+                if (
+                    error.is(WebsocketError.SOCKET_DEAD) ||
+                    error.is(WebsocketError.CONNECT_MISSING)
+                ) {
+                    return;
+                }
+
+                this.reportError(error);
+            });
+
         this.onclose?.();
     }
 
@@ -83,6 +175,8 @@ export class WebSocketServerTransport implements Transport {
         extra?: MessageExtraInfo
     ) => void;
     sessionId?: string | undefined;
-    setProtocolVersion?: ((version: string) => void) | undefined;
+    setProtocolVersion = (version: string) => {
+        this.protocolVersion = version;
+    };
     // #endregion
 }

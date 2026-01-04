@@ -3,8 +3,14 @@ import {
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
-    type JSONRPCMessage,
+    type JSONRPCMessage
 } from "@modelcontextprotocol/sdk/types.js";
+
+export const isJSONRPCMessage = (value: unknown): value is JSONRPCMessage =>
+    isJSONRPCRequest(value) ||
+    isJSONRPCNotification(value) ||
+    isJSONRPCResultResponse(value) ||
+    isJSONRPCErrorResponse(value);
 
 export const briefOf = (msg: JSONRPCMessage) => {
     if (isJSONRPCRequest(msg)) {
