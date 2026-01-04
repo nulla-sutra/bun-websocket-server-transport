@@ -36,9 +36,7 @@ Bun.serve<WsData>({
 	websocket: {
 		open(ws: ServerWebSocket<WsData>) {
 			const transport = new WebSocketServerTransport();
-			const mounted = transport.mount(
-				ws as unknown as ServerWebSocket<{ transport: WebSocketServerTransport }>
-			);
+			const mounted = transport.mount(ws);
 			if (mounted.isErr()) {
 				ws.close(1011, "mount failed");
 				return;
