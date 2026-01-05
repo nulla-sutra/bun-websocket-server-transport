@@ -121,8 +121,9 @@ export class WebSocketServerTransport implements Transport {
                 fromThrowable(
                     () => JSON.stringify(message, null, 2),
                     (cause) =>
-                        // biome-ignore format: keep `.with({ cause })` single-line
-                        SerializationError.ENCODE_FAILED(message).with({ cause })
+                        SerializationError.ENCODE_FAILED(message).with({
+                            cause
+                        })
                 )().map((payload) => ({ ws, payload }))
             )
             .andThen(({ ws, payload }) =>

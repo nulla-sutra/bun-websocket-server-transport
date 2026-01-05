@@ -26,6 +26,7 @@
         "formatter": {
             "quoteStyle": "double",
             "trailingCommas": "none",
+            "bracketSpacing": true,
             "lineWidth": 80
         }
     },
